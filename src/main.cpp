@@ -1,70 +1,47 @@
-#include <Shlwapi.h>
-#pragma comment(lib, "Shlwapi.lib")
-#include <iostream>
-#include <vector>
-#include <locale>
-#include <curl/curl.h>
-#include <nlohmann/json.hpp>
+#include "misskey_websocket.hpp"
+#include "misskey.hpp"
 #include <toml++/toml.hpp>
+#include <windows.h>
 
-using json = nlohmann::json;
+using namespace Misskey;
 
-static void postToMisskey(std::string uri, std::string token, std::string text) {
-    std::string notes_create_url = "https://" + uri + "/api/notes/create";
+std::string get_executable_dir() {
+    std::string path(MAX_PATH, '\0');
+    char* path_data = path.data();
+    GetModuleFileNameA(NULL, path_data, MAX_PATH);
 
-    json data;
-    data["i"] = token;
-    data["text"] = text;
-    data["visibility"] = "public";
+    path.resize(strlen(path.data()));
+    path.shrink_to_fit();
 
-    std::string json_string = data.dump();
-
-    CURL *curl = curl_easy_init();
-    struct curl_slist *headers = NULL;
-
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, notes_create_url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_string.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, json_string.length());
-
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        CURLcode response = curl_easy_perform(curl);
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-
-        if(response != CURLE_OK) {
-            std::cerr << "Post failed: " << curl_easy_strerror(response) << std::endl;
-            exit(1);
-        }
-    }
-
-    curl_global_cleanup();
+    std::filesystem::path exe_path(std::move(path));
+    std::filesystem::path exe_dir = exe_path.parent_path();
+    return exe_dir.string();
 }
 
 int main() {
     std::setlocale(LC_ALL, ".UTF8");
 
-    TCHAR config_file_folder_path[_MAX_PATH];
-    memset(config_file_folder_path, NULL, _countof(config_file_folder_path));
-    GetModuleFileName(NULL, config_file_folder_path, _countof(config_file_folder_path));
-    PathRemoveFileSpec(config_file_folder_path);
+    std::string executable_path = get_executable_dir();
 
-    std::string config_file_path = config_file_folder_path;
+    std::string config_file_path = executable_path;
     config_file_path.append("\\config.toml");
+
+    if (!std::filesystem::exists(config_file_path)) {
+        std::cerr << "Please set config to " << config_file_path << ", bye" << std::endl;
+        return 1;
+    }
+
     toml::table config = toml::parse_file(config_file_path);
 
     std::string& uri = config.at_path("Secrets.uri").ref<std::string>();
     std::string& token = config.at_path("Secrets.token").ref<std::string>();
 
-    std::cout << "いまどうしてる？: ";
-    std::string line;
-    std::getline(std::cin, line);
+    // std::cout << "いまどうしてる？: ";
+    // std::string line;
+    // std::getline(std::cin, line);
 
-    postToMisskey(uri, token, line);
+    // misskey::postNote(uri, token, line);
+
+    websocket client;
+    client.connect(uri, token);
 }

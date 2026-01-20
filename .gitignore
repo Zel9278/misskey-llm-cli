@@ -1,4 +1,5 @@
 .vscode/
 .xmake/
 build/
+vsxmake*/
 config.toml
