@@ -67,7 +67,10 @@ void print_usage() {
     std::cerr
         << "Usage:\n"
         << "  what stream                        -- Stream timeline & notifications\n"
-        << "  what post <text> [--cw <cw>] [--visibility <vis>]\n"
+        << "  what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>]\n"
+        << "  what reply <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
+        << "  what quote <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
+        << "  what renote <noteId>\n"
         << "  what delete <noteId>\n"
         << "  what show <noteId>\n"
         << "  what timeline [hybrid|local|global|home] [--limit N]\n"
@@ -175,13 +178,31 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "post") {
         if (pos.empty()) {
-            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>]" << std::endl;
+            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>]" << std::endl;
             return 1;
         }
         std::string text = pos[0];
         std::string cw = get_flag(rest, "--cw");
         std::string vis = get_flag(rest, "--visibility", "public");
-        print_result(client.note_create(text, vis, cw));
+        std::string reply_id = get_flag(rest, "--reply");
+        std::string quote_id = get_flag(rest, "--quote");
+        print_result(client.note_create(text, vis, cw, reply_id, quote_id));
+
+    } else if (cmd == "reply") {
+        if (pos.size() < 2) { std::cerr << "Usage: what reply <noteId> <text> [--cw <cw>] [--visibility <vis>]" << std::endl; return 1; }
+        std::string cw = get_flag(rest, "--cw");
+        std::string vis = get_flag(rest, "--visibility", "public");
+        print_result(client.note_create(pos[1], vis, cw, pos[0]));
+
+    } else if (cmd == "quote") {
+        if (pos.size() < 2) { std::cerr << "Usage: what quote <noteId> <text> [--cw <cw>] [--visibility <vis>]" << std::endl; return 1; }
+        std::string cw = get_flag(rest, "--cw");
+        std::string vis = get_flag(rest, "--visibility", "public");
+        print_result(client.note_create(pos[1], vis, cw, "", pos[0]));
+
+    } else if (cmd == "renote" || cmd == "rn") {
+        if (pos.empty()) { std::cerr << "Usage: what renote <noteId>" << std::endl; return 1; }
+        print_result(client.renote(pos[0]));
 
     } else if (cmd == "delete") {
         if (pos.empty()) { std::cerr << "Usage: what delete <noteId>" << std::endl; return 1; }

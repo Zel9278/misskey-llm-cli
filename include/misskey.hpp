@@ -69,11 +69,21 @@ namespace Misskey {
 
         json note_create(const std::string& text,
                          const std::string& visibility = "public",
-                         const std::string& cw = "") const {
+                         const std::string& cw = "",
+                         const std::string& reply_id = "",
+                         const std::string& renote_id = "") const {
             json body;
             body["text"] = text;
             body["visibility"] = visibility;
             if (!cw.empty()) body["cw"] = cw;
+            if (!reply_id.empty()) body["replyId"] = reply_id;
+            if (!renote_id.empty()) body["renoteId"] = renote_id;
+            return post("notes/create", body);
+        }
+
+        json renote(const std::string& note_id) const {
+            json body;
+            body["renoteId"] = note_id;
             return post("notes/create", body);
         }
 
