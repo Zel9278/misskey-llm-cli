@@ -1,3 +1,18 @@
 [Secrets]
 uri = "example: mk.c30.life"
 token = "your api token here"
+
+[Output]
+# "jsonl" = one JSON object per line (best for LLM bots / piping)
+# "human" = human-readable colored log
+format = "jsonl"
+
+[Command]
+# External command to run on each event (e.g. openclaw)
+enabled = false
+program = "openclaw"
+args = ["message", "send"]
+# Which events to forward (empty = all)
+# Available: note, notification, mention, followed, connected, disconnected, error
+events = []
+max_queue_size = 100

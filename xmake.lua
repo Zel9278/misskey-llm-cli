@@ -16,4 +16,9 @@ target("what")
     add_includedirs("include")
 
     add_packages("libcurl", "nlohmann_json", "toml++", "openssl", "ixwebsocket")
-    add_syslinks("ws2_32", "crypt32")
+
+    if is_plat("windows") then
+        add_syslinks("ws2_32", "crypt32")
+    elseif is_plat("linux") then
+        add_syslinks("pthread")
+    end
