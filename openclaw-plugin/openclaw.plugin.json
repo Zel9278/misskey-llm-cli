@@ -1,0 +1,29 @@
+{
+  "id": "misskey",
+  "name": "Misskey Channel",
+  "description": "Misskey Streaming API channel for OpenClaw, using misskey-llm-cli (what) binary",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cliBinary": {
+        "type": "string",
+        "description": "Path to the 'what' CLI binary. If omitted, searches PATH."
+      },
+      "mentionOnly": {
+        "type": "boolean",
+        "description": "If true, only process messages that mention the bot user."
+      }
+    }
+  },
+  "uiHints": {
+    "cliBinary": {
+      "label": "CLI Binary Path",
+      "placeholder": "/usr/local/bin/what"
+    },
+    "mentionOnly": {
+      "label": "Mention-only mode"
+    }
+  }
+}

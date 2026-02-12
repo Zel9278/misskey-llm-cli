@@ -1,0 +1,27 @@
+{
+  "name": "@misskey/openclaw-misskey",
+  "version": "0.1.0",
+  "description": "OpenClaw channel plugin for Misskey, powered by misskey-llm-cli",
+  "main": "src/index.ts",
+  "openclaw": {
+    "extensions": ["./src/index.ts"],
+    "channel": {
+      "id": "misskey",
+      "label": "Misskey",
+      "selectionLabel": "Misskey (Streaming API)",
+      "docsPath": "/channels/misskey",
+      "docsLabel": "misskey",
+      "blurb": "Connect to Misskey instances via Streaming API.",
+      "order": 80,
+      "aliases": ["mk", "misskey"]
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
