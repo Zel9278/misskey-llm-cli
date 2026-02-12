@@ -3,7 +3,7 @@
   "name": "Misskey Channel",
   "description": "Misskey Streaming API channel for OpenClaw, using misskey-llm-cli (what) binary",
   "version": "0.1.0",
-  "channelId": "misskey",
+  "channels": ["misskey"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
