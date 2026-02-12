@@ -201,7 +201,24 @@ export default function register(api: PluginApi) {
     id: "misskey-stream",
     start: () => {
       api.logger.info("[misskey] Starting stream listener...");
-      cli.startStream();
+
+      if (!cli.isAvailable()) {
+        api.logger.warn(
+          `[misskey] CLI binary not found. Stream listener disabled. ` +
+          `Set plugins.entries.misskey.config.cliBinary to the path of the 'what' binary.`,
+        );
+        return;
+      }
+
+      const started = cli.startStream();
+      if (!started) {
+        api.logger.warn("[misskey] Failed to start stream listener.");
+        return;
+      }
+
+      cli.on("error", (err: Error) => {
+        api.logger.error(`[misskey] Stream error: ${err.message}`);
+      });
 
       cli.on("note", (data: Record<string, unknown>) => {
         const note = data.note as Record<string, unknown>;

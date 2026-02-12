@@ -2,6 +2,8 @@
 import { spawn, execFileSync, ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
+import { existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 export interface MisskeyNote {
   id: string;
@@ -35,10 +37,39 @@ export class MisskeyCli extends EventEmitter {
     this.binary = binary;
   }
 
+  // Check if the CLI binary is available on the system
+  isAvailable(): boolean {
+    try {
+      // Check if the binary is an absolute path
+      if (this.binary.startsWith("/") || this.binary.includes("/")) {
+        return existsSync(this.binary);
+      }
+      // Check if the binary is in PATH
+      execSync(`which ${this.binary}`, { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   // Start streaming (spawns 'what stream')
-  startStream(): void {
-    this.proc = spawn(this.binary, ["stream"], {
-      stdio: ["ignore", "pipe", "pipe"],
+  startStream(): boolean {
+    if (!this.isAvailable()) {
+      this.emit("error", new Error(`CLI binary '${this.binary}' not found in PATH`));
+      return false;
+    }
+
+    try {
+      this.proc = spawn(this.binary, ["stream"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      this.emit("error", err);
+      return false;
+    }
+
+    this.proc.on("error", (err: Error) => {
+      this.emit("error", err);
     });
 
     const rl = createInterface({ input: this.proc.stdout! });
@@ -59,6 +90,8 @@ export class MisskeyCli extends EventEmitter {
     this.proc.on("exit", (code: number | null) => {
       this.emit("exit", code);
     });
+
+    return true;
   }
 
   stopStream(): void {
@@ -70,14 +103,21 @@ export class MisskeyCli extends EventEmitter {
 
   // Run a CLI command synchronously and return parsed JSON
   private exec(args: string[]): unknown {
-    const result = execFileSync(this.binary, args, {
-      encoding: "utf-8",
-      timeout: 30_000,
-    });
+    if (!this.isAvailable()) {
+      return { error: `CLI binary '${this.binary}' not found` };
+    }
     try {
-      return JSON.parse(result);
-    } catch {
-      return { raw: result };
+      const result = execFileSync(this.binary, args, {
+        encoding: "utf-8",
+        timeout: 30_000,
+      });
+      try {
+        return JSON.parse(result);
+      } catch {
+        return { raw: result };
+      }
+    } catch (err) {
+      return { error: String(err) };
     }
   }
 
