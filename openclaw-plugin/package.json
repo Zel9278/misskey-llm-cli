@@ -1,5 +1,5 @@
 {
-  "name": "@misskey/openclaw-misskey",
+  "name": "misskey",
   "version": "0.1.0",
   "description": "OpenClaw channel plugin for Misskey, powered by misskey-llm-cli",
   "main": "src/index.ts",
