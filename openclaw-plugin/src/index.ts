@@ -1,20 +1,29 @@
 // OpenClaw Misskey channel plugin
 // Registers Misskey as a messaging channel using the 'what' CLI binary
+// Supports inbound message delivery via gateway adapter + outbound via sendText
 
 import { MisskeyCli } from "./cli-bridge.js";
+
+// ---- Types ----
 
 interface PluginConfig {
   cliBinary?: string;
   mentionOnly?: boolean;
 }
 
+interface Logger {
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PluginRuntime = any;
+
 interface PluginApi {
   config: Record<string, unknown>;
-  logger: {
-    info: (...args: unknown[]) => void;
-    warn: (...args: unknown[]) => void;
-    error: (...args: unknown[]) => void;
-  };
+  logger: Logger;
+  runtime: PluginRuntime;
   registerChannel: (opts: { plugin: unknown }) => void;
   registerTool: (tool: unknown) => void;
   registerService: (service: unknown) => void;
@@ -22,18 +31,163 @@ interface PluginApi {
   registerCommand: (cmd: unknown) => void;
 }
 
+// ---- Module-level runtime reference ----
+let rt: PluginRuntime = null;
+let log: Logger = console;
+
+function setRuntime(api: PluginApi) {
+  rt = api.runtime;
+  log = api.logger;
+}
+
+// ---- Config helpers ----
+
 function getPluginConfig(api: PluginApi): PluginConfig {
   const entries = (api.config as Record<string, unknown>)?.plugins as Record<string, unknown> | undefined;
   const misskey = (entries?.entries as Record<string, unknown>)?.misskey as Record<string, unknown> | undefined;
   return (misskey?.config as PluginConfig) ?? {};
 }
 
-function getChannelConfig(api: PluginApi): Record<string, unknown> {
-  const channels = (api.config as Record<string, unknown>)?.channels as Record<string, unknown> | undefined;
+function resolveChannelConfig(cfg: Record<string, unknown>): Record<string, unknown> {
+  const channels = cfg?.channels as Record<string, unknown> | undefined;
   return (channels?.misskey as Record<string, unknown>) ?? {};
 }
 
+// ---- Inbound message handler ----
+
+function buildSenderLabel(user: Record<string, unknown>): string {
+  const username = user?.username as string ?? "unknown";
+  const host = user?.host as string | null;
+  const name = user?.name as string | null;
+  const handle = host ? `@${username}@${host}` : `@${username}`;
+  return name ? `${name} (${handle})` : handle;
+}
+
+async function deliverInbound(
+  cfg: Record<string, unknown>,
+  accountId: string,
+  note: Record<string, unknown>,
+  cli: MisskeyCli,
+) {
+  if (!rt?.channel) {
+    log.warn("[misskey] runtime.channel not available; cannot deliver inbound message");
+    return;
+  }
+
+  const user = note.user as Record<string, unknown>;
+  const text = note.text as string | null;
+  const noteId = note.id as string;
+  const senderId = (user?.id as string) ?? "unknown";
+  const senderLabel = buildSenderLabel(user);
+  const isDirect = (note.visibility as string) === "specified";
+
+  if (!text) return; // skip empty notes (renotes without text, etc.)
+
+  try {
+    // Step 1: Route to agent
+    const route = rt.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "misskey",
+      accountId,
+      peer: { kind: isDirect ? "direct" : "group", id: senderId },
+    });
+
+    // Step 2: Resolve session store path
+    const storePath = rt.channel.session.resolveStorePath(
+      (cfg.session as Record<string, unknown>)?.store,
+      { agentId: route.agentId },
+    );
+
+    // Step 3: Get envelope format options
+    const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
+    const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
+      storePath,
+      sessionKey: route.sessionKey,
+    });
+
+    // Step 4: Format inbound envelope
+    const body = rt.channel.reply.formatInboundEnvelope({
+      channel: "Misskey",
+      from: senderLabel,
+      timestamp: Date.now(),
+      body: text,
+      chatType: isDirect ? "direct" : "group",
+      sender: { name: (user?.name as string) ?? (user?.username as string), id: senderId },
+      previousTimestamp,
+      envelope: envelopeOptions,
+    });
+
+    // Step 5: Finalize inbound context
+    const ctx = rt.channel.reply.finalizeInboundContext({
+      Body: body,
+      RawBody: text,
+      CommandBody: text,
+      From: senderId,
+      To: senderId,
+      SessionKey: route.sessionKey,
+      AccountId: accountId,
+      ChatType: isDirect ? "direct" : "group",
+      ConversationLabel: senderLabel,
+      SenderName: senderLabel,
+      SenderId: senderId,
+      Provider: "misskey",
+      Surface: "misskey",
+      MessageSid: noteId,
+      Timestamp: Date.now(),
+      CommandAuthorized: true,
+      OriginatingChannel: "misskey",
+      OriginatingTo: senderId,
+    });
+
+    // Step 6: Record session
+    await rt.channel.session.recordInboundSession({
+      storePath,
+      sessionKey: ctx.SessionKey || route.sessionKey,
+      ctx,
+      updateLastRoute: {
+        sessionKey: route.mainSessionKey,
+        channel: "misskey",
+        to: senderId,
+        accountId,
+      },
+      onRecordError: (err: unknown) => log.error("[misskey] Session record failed:", err),
+    });
+
+    // Step 7: Dispatch to agent and deliver reply
+    await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx,
+      cfg,
+      dispatcherOptions: {
+        responsePrefix: "",
+        deliver: async (payload: { markdown?: string; text?: string }) => {
+          const replyText = payload.markdown || payload.text;
+          if (!replyText) return;
+          try {
+            cli.reply(noteId, replyText);
+          } catch (err) {
+            log.error("[misskey] Reply delivery failed:", err);
+          }
+        },
+      },
+    });
+  } catch (err) {
+    log.error("[misskey] Inbound delivery pipeline failed:", err);
+    // Log the available runtime keys for debugging
+    if (rt?.channel) {
+      log.info("[misskey] runtime.channel keys:", Object.keys(rt.channel));
+      if (rt.channel.routing) log.info("[misskey] routing keys:", Object.keys(rt.channel.routing));
+      if (rt.channel.reply) log.info("[misskey] reply keys:", Object.keys(rt.channel.reply));
+      if (rt.channel.session) log.info("[misskey] session keys:", Object.keys(rt.channel.session));
+    } else {
+      log.info("[misskey] runtime keys:", rt ? Object.keys(rt) : "null");
+    }
+  }
+}
+
+// ---- Plugin entry point ----
+
 export default function register(api: PluginApi) {
+  setRuntime(api);
   const pluginCfg = getPluginConfig(api);
   const cli = new MisskeyCli(pluginCfg.cliBinary || "what");
 
@@ -52,12 +206,12 @@ export default function register(api: PluginApi) {
       chatTypes: ["direct", "group"] as const,
     },
     config: {
-      listAccountIds: (_cfg: Record<string, unknown>) => {
-        const ch = getChannelConfig({ config: _cfg } as PluginApi);
+      listAccountIds: (cfg: Record<string, unknown>) => {
+        const ch = resolveChannelConfig(cfg);
         return Object.keys((ch?.accounts as Record<string, unknown>) ?? { default: true });
       },
-      resolveAccount: (_cfg: Record<string, unknown>, accountId?: string) => {
-        const ch = getChannelConfig({ config: _cfg } as PluginApi);
+      resolveAccount: (cfg: Record<string, unknown>, accountId?: string) => {
+        const ch = resolveChannelConfig(cfg);
         const accounts = (ch?.accounts as Record<string, unknown>) ?? {};
         return accounts[accountId ?? "default"] ?? { accountId };
       },
@@ -74,9 +228,93 @@ export default function register(api: PluginApi) {
           }
           return { ok: true };
         } catch (err) {
-          api.logger.error("[misskey] sendText failed:", err);
+          log.error("[misskey] sendText failed:", err);
           return { ok: false };
         }
+      },
+    },
+
+    // ---- Gateway adapter: starts/stops WebSocket stream ----
+    gateway: {
+      startAccount: async (ctx: {
+        account: Record<string, unknown>;
+        cfg: Record<string, unknown>;
+        abortSignal?: AbortSignal;
+        log?: Logger;
+        updateSnapshot?: (snapshot: Record<string, unknown>) => void;
+      }) => {
+        const gatewayLog = ctx.log ?? log;
+        const accountId = (ctx.account?.accountId as string) ?? "default";
+        const cfg = ctx.cfg;
+
+        gatewayLog.info(`[misskey] Starting gateway for account: ${accountId}`);
+
+        if (!cli.isAvailable()) {
+          gatewayLog.warn(
+            `[misskey] CLI binary not found. Gateway disabled. ` +
+            `Set plugins.entries.misskey.config.cliBinary or install 'what' in PATH.`,
+          );
+          ctx.updateSnapshot?.({ running: false, error: "CLI binary not found" });
+          return { stop: () => {} };
+        }
+
+        const started = cli.startStream();
+        if (!started) {
+          gatewayLog.warn("[misskey] Failed to start stream.");
+          ctx.updateSnapshot?.({ running: false, error: "Stream start failed" });
+          return { stop: () => {} };
+        }
+
+        ctx.updateSnapshot?.({ running: true, lastStartAt: new Date().toISOString() });
+
+        cli.on("error", (err: Error) => {
+          gatewayLog.error(`[misskey] Stream error: ${err.message}`);
+        });
+
+        // Handle mention events -> deliver to agent
+        cli.on("mention", (data: Record<string, unknown>) => {
+          const note = data.note as Record<string, unknown>;
+          if (!note) return;
+          gatewayLog.info(`[misskey] Mention from @${(note.user as Record<string, unknown>)?.username}: ${((note.text as string) ?? "").slice(0, 80)}`);
+          deliverInbound(cfg, accountId, note, cli).catch((err) => {
+            gatewayLog.error("[misskey] deliverInbound (mention) failed:", err);
+          });
+        });
+
+        // Handle timeline notes (if not mention-only mode)
+        if (!pluginCfg.mentionOnly) {
+          cli.on("note", (data: Record<string, unknown>) => {
+            const note = data.note as Record<string, unknown>;
+            if (!note) return;
+            const user = note.user as Record<string, unknown>;
+            gatewayLog.info(`[misskey] Note @${user?.username}: ${((note.text as string) ?? "").slice(0, 80)}`);
+            // Only deliver notes that have text (skip renotes without comment)
+            if (note.text) {
+              deliverInbound(cfg, accountId, note, cli).catch((err) => {
+                gatewayLog.error("[misskey] deliverInbound (note) failed:", err);
+              });
+            }
+          });
+        }
+
+        cli.on("exit", (code: number | null) => {
+          gatewayLog.warn(`[misskey] Stream process exited with code ${code}`);
+          ctx.updateSnapshot?.({ running: false, lastStopAt: new Date().toISOString() });
+        });
+
+        // Handle abort signal
+        ctx.abortSignal?.addEventListener("abort", () => {
+          gatewayLog.info("[misskey] Abort signal received, stopping stream.");
+          cli.stopStream();
+        });
+
+        return {
+          stop: () => {
+            gatewayLog.info("[misskey] Stopping gateway stream...");
+            cli.stopStream();
+            ctx.updateSnapshot?.({ running: false, lastStopAt: new Date().toISOString() });
+          },
+        };
       },
     },
   };
@@ -196,63 +434,6 @@ export default function register(api: PluginApi) {
     },
   });
 
-  // ---- Background service: stream listener ----
-  api.registerService({
-    id: "misskey-stream",
-    start: () => {
-      api.logger.info("[misskey] Starting stream listener...");
-
-      if (!cli.isAvailable()) {
-        api.logger.warn(
-          `[misskey] CLI binary not found. Stream listener disabled. ` +
-          `Set plugins.entries.misskey.config.cliBinary to the path of the 'what' binary.`,
-        );
-        return;
-      }
-
-      const started = cli.startStream();
-      if (!started) {
-        api.logger.warn("[misskey] Failed to start stream listener.");
-        return;
-      }
-
-      cli.on("error", (err: Error) => {
-        api.logger.error(`[misskey] Stream error: ${err.message}`);
-      });
-
-      cli.on("note", (data: Record<string, unknown>) => {
-        const note = data.note as Record<string, unknown>;
-        if (!note) return;
-
-        const user = note.user as Record<string, unknown>;
-        const text = note.text as string;
-        const noteId = note.id as string;
-
-        if (pluginCfg.mentionOnly && text) {
-          // In mention-only mode, skip notes that don't mention the bot
-          // (Actual bot username check would require calling 'what me' once)
-        }
-
-        api.logger.info(
-          `[misskey] @${user?.username}: ${text?.slice(0, 100) ?? "(no text)"}`,
-        );
-      });
-
-      cli.on("mention", (data: Record<string, unknown>) => {
-        const note = data.note as Record<string, unknown>;
-        api.logger.info(`[misskey] Mention received: ${(note?.id as string) ?? "?"}`);
-      });
-
-      cli.on("exit", (code: number | null) => {
-        api.logger.warn(`[misskey] Stream process exited with code ${code}`);
-      });
-    },
-    stop: () => {
-      api.logger.info("[misskey] Stopping stream listener...");
-      cli.stopStream();
-    },
-  });
-
   // ---- Auto-reply commands ----
   api.registerCommand({
     name: "mkpost",
@@ -291,5 +472,15 @@ export default function register(api: PluginApi) {
     },
   });
 
-  api.logger.info("[misskey] Plugin registered");
+  // Log runtime capabilities for debugging
+  if (rt) {
+    log.info("[misskey] runtime available, keys:", Object.keys(rt));
+    if (rt.channel) {
+      log.info("[misskey] runtime.channel keys:", Object.keys(rt.channel));
+    }
+  } else {
+    log.warn("[misskey] runtime not available");
+  }
+
+  log.info("[misskey] Plugin registered");
 }
