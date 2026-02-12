@@ -3,6 +3,7 @@
 #include "event_handler.hpp"
 #include <toml++/toml.hpp>
 #include <filesystem>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,7 +23,6 @@ std::string get_executable_dir() {
     std::string path(PATH_MAX, '\0');
     ssize_t len = readlink("/proc/self/exe", path.data(), PATH_MAX);
     if (len == -1) {
-        // Fallback: current working directory
         return std::filesystem::current_path().string();
     }
     path.resize(static_cast<size_t>(len));
@@ -31,64 +31,209 @@ std::string get_executable_dir() {
     return std::filesystem::path(std::move(path)).parent_path().string();
 }
 
-int main() {
+struct AppConfig {
+    std::string uri;
+    std::string token;
+    std::string output_format;
+    toml::table raw;
+};
+
+AppConfig load_config() {
+    std::string exe_dir = get_executable_dir();
+    std::filesystem::path config_path = std::filesystem::path(exe_dir) / "config.toml";
+    std::string config_str = config_path.string();
+
+    if (!std::filesystem::exists(config_path)) {
+        std::cerr << "Please set config to " << config_str << ", bye" << std::endl;
+        std::exit(1);
+    }
+
+    toml::table tbl = toml::parse_file(config_str);
+
+    AppConfig cfg;
+    cfg.uri = tbl.at_path("Secrets.uri").ref<std::string>();
+    cfg.token = tbl.at_path("Secrets.token").ref<std::string>();
+    cfg.output_format = tbl.at_path("Output.format").value_or<std::string>("jsonl");
+    cfg.raw = std::move(tbl);
+    return cfg;
+}
+
+// Print JSON result to stdout
+void print_result(const json& result) {
+    std::cout << result.dump(2, ' ', false, json::error_handler_t::replace) << std::endl;
+}
+
+void print_usage() {
+    std::cerr
+        << "Usage:\n"
+        << "  what stream                        -- Stream timeline & notifications\n"
+        << "  what post <text> [--cw <cw>] [--visibility <vis>]\n"
+        << "  what delete <noteId>\n"
+        << "  what show <noteId>\n"
+        << "  what timeline [hybrid|local|global|home] [--limit N]\n"
+        << "  what search <query> [--limit N]\n"
+        << "  what react <noteId> <reaction>\n"
+        << "  what unreact <noteId>\n"
+        << "  what notif [--limit N]\n"
+        << "  what user <username> [--host <host>]\n"
+        << "  what me\n"
+        << "  what follow <userId>\n"
+        << "  what unfollow <userId>\n";
+}
+
+// Simple arg parser helpers
+std::string get_flag(const std::vector<std::string>& args,
+                     const std::string& flag,
+                     const std::string& default_val = "") {
+    for (size_t i = 0; i < args.size(); i++) {
+        if (args[i] == flag && i + 1 < args.size()) {
+            return args[i + 1];
+        }
+    }
+    return default_val;
+}
+
+int get_flag_int(const std::vector<std::string>& args,
+                 const std::string& flag, int default_val = 10) {
+    std::string val = get_flag(args, flag);
+    if (val.empty()) return default_val;
+    try { return std::stoi(val); } catch (...) { return default_val; }
+}
+
+// Collect all positional args (not starting with --)
+std::vector<std::string> positional(const std::vector<std::string>& args) {
+    std::vector<std::string> result;
+    for (size_t i = 0; i < args.size(); i++) {
+        if (args[i].starts_with("--")) {
+            i++; // skip flag value
+        } else {
+            result.push_back(args[i]);
+        }
+    }
+    return result;
+}
+
+int cmd_stream(const AppConfig& cfg) {
+    EventHandler handler;
+    if (cfg.output_format == "human") {
+        handler.format = OutputFormat::Human;
+    } else {
+        handler.format = OutputFormat::JSONL;
+    }
+
+    handler.command.config.enabled =
+        cfg.raw.at_path("Command.enabled").value_or(false);
+    handler.command.config.program =
+        cfg.raw.at_path("Command.program").value_or<std::string>("");
+
+    if (auto* arr = cfg.raw.at_path("Command.args").as_array()) {
+        for (const auto& v : *arr) {
+            if (auto s = v.value<std::string>())
+                handler.command.config.args.push_back(*s);
+        }
+    }
+    if (auto* arr = cfg.raw.at_path("Command.events").as_array()) {
+        for (const auto& v : *arr) {
+            if (auto s = v.value<std::string>())
+                handler.command.config.events.push_back(*s);
+        }
+    }
+    handler.command.config.max_queue_size =
+        cfg.raw.at_path("Command.max_queue_size").value_or(100);
+
+    handler.start();
+
+    websocket client(handler);
+    client.connect(cfg.uri, cfg.token);
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
 #ifdef _WIN32
     std::setlocale(LC_ALL, ".UTF8");
 #else
     std::setlocale(LC_ALL, "");
 #endif
 
-    std::string executable_path = get_executable_dir();
+    AppConfig cfg = load_config();
+    api client(cfg.uri, cfg.token);
 
-    std::filesystem::path config_file_path =
-        std::filesystem::path(executable_path) / "config.toml";
-    std::string config_file_str = config_file_path.string();
+    // Collect args
+    std::vector<std::string> args;
+    for (int i = 1; i < argc; i++) {
+        args.emplace_back(argv[i]);
+    }
 
-    if (!std::filesystem::exists(config_file_path)) {
-        std::cerr << "Please set config to " << config_file_str << ", bye" << std::endl;
+    // Default: stream if no args
+    if (args.empty() || args[0] == "stream") {
+        return cmd_stream(cfg);
+    }
+
+    std::string cmd = args[0];
+    std::vector<std::string> rest(args.begin() + 1, args.end());
+    auto pos = positional(rest);
+
+    if (cmd == "post") {
+        if (pos.empty()) {
+            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>]" << std::endl;
+            return 1;
+        }
+        std::string text = pos[0];
+        std::string cw = get_flag(rest, "--cw");
+        std::string vis = get_flag(rest, "--visibility", "public");
+        print_result(client.note_create(text, vis, cw));
+
+    } else if (cmd == "delete") {
+        if (pos.empty()) { std::cerr << "Usage: what delete <noteId>" << std::endl; return 1; }
+        print_result(client.note_delete(pos[0]));
+
+    } else if (cmd == "show") {
+        if (pos.empty()) { std::cerr << "Usage: what show <noteId>" << std::endl; return 1; }
+        print_result(client.note_show(pos[0]));
+
+    } else if (cmd == "timeline" || cmd == "tl") {
+        std::string type = pos.empty() ? "hybrid" : pos[0];
+        int limit = get_flag_int(rest, "--limit", 10);
+        print_result(client.timeline(type, limit));
+
+    } else if (cmd == "search") {
+        if (pos.empty()) { std::cerr << "Usage: what search <query>" << std::endl; return 1; }
+        int limit = get_flag_int(rest, "--limit", 10);
+        print_result(client.search_notes(pos[0], limit));
+
+    } else if (cmd == "react") {
+        if (pos.size() < 2) { std::cerr << "Usage: what react <noteId> <reaction>" << std::endl; return 1; }
+        print_result(client.reaction_create(pos[0], pos[1]));
+
+    } else if (cmd == "unreact") {
+        if (pos.empty()) { std::cerr << "Usage: what unreact <noteId>" << std::endl; return 1; }
+        print_result(client.reaction_delete(pos[0]));
+
+    } else if (cmd == "notif" || cmd == "notifications") {
+        int limit = get_flag_int(rest, "--limit", 10);
+        print_result(client.notifications(limit));
+
+    } else if (cmd == "user") {
+        if (pos.empty()) { std::cerr << "Usage: what user <username> [--host <host>]" << std::endl; return 1; }
+        std::string host = get_flag(rest, "--host");
+        print_result(client.user_show(pos[0], host));
+
+    } else if (cmd == "me") {
+        print_result(client.me());
+
+    } else if (cmd == "follow") {
+        if (pos.empty()) { std::cerr << "Usage: what follow <userId>" << std::endl; return 1; }
+        print_result(client.follow(pos[0]));
+
+    } else if (cmd == "unfollow") {
+        if (pos.empty()) { std::cerr << "Usage: what unfollow <userId>" << std::endl; return 1; }
+        print_result(client.unfollow(pos[0]));
+
+    } else {
+        std::cerr << "Unknown command: " << cmd << std::endl;
+        print_usage();
         return 1;
     }
 
-    toml::table config = toml::parse_file(config_file_str);
-
-    std::string& uri = config.at_path("Secrets.uri").ref<std::string>();
-    std::string& token = config.at_path("Secrets.token").ref<std::string>();
-
-    // Read output format from config (default: jsonl)
-    std::string format_str = config.at_path("Output.format").value_or<std::string>("jsonl");
-
-    EventHandler handler;
-    if (format_str == "human") {
-        handler.format = OutputFormat::Human;
-    } else {
-        handler.format = OutputFormat::JSONL;
-    }
-
-    // External command integration (e.g. openclaw)
-    handler.command.config.enabled = config.at_path("Command.enabled").value_or(false);
-    handler.command.config.program = config.at_path("Command.program").value_or<std::string>("");
-
-    if (auto* arr = config.at_path("Command.args").as_array()) {
-        for (const auto& v : *arr) {
-            if (auto s = v.value<std::string>()) {
-                handler.command.config.args.push_back(*s);
-            }
-        }
-    }
-
-    if (auto* arr = config.at_path("Command.events").as_array()) {
-        for (const auto& v : *arr) {
-            if (auto s = v.value<std::string>()) {
-                handler.command.config.events.push_back(*s);
-            }
-        }
-    }
-
-    handler.command.config.max_queue_size =
-        config.at_path("Command.max_queue_size").value_or(100);
-
-    handler.start();
-
-    websocket client(handler);
-    client.connect(uri, token);
+    return 0;
 }
