@@ -346,14 +346,14 @@ export default function register(api: PluginApi) {
       },
       required: ["text"],
     },
-    handler: async (params: Record<string, string>) => {
+    execute: async (_id: string, params: Record<string, string>) => {
       const result = cli.post(params.text, {
         cw: params.cw,
         visibility: params.visibility,
         replyId: params.replyId,
         quoteId: params.quoteId,
       });
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -367,12 +367,12 @@ export default function register(api: PluginApi) {
         limit: { type: "number", description: "Number of notes to fetch (default: 10)" },
       },
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const result = cli.timeline(
         (params.type as string) ?? "hybrid",
         (params.limit as number) ?? 10,
       );
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -387,12 +387,12 @@ export default function register(api: PluginApi) {
       },
       required: ["query"],
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const result = cli.search(
         params.query as string,
         (params.limit as number) ?? 10,
       );
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -407,9 +407,9 @@ export default function register(api: PluginApi) {
       },
       required: ["noteId", "reaction"],
     },
-    handler: async (params: Record<string, string>) => {
+    execute: async (_id: string, params: Record<string, string>) => {
       const result = cli.react(params.noteId, params.reaction);
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -422,9 +422,9 @@ export default function register(api: PluginApi) {
         limit: { type: "number", description: "Number of notifications (default: 10)" },
       },
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const result = cli.notifications((params.limit as number) ?? 10);
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -438,9 +438,9 @@ export default function register(api: PluginApi) {
       },
       required: ["noteId"],
     },
-    handler: async (params: Record<string, string>) => {
+    execute: async (_id: string, params: Record<string, string>) => {
       const result = cli.noteShow(params.noteId);
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -457,13 +457,13 @@ export default function register(api: PluginApi) {
       },
       required: ["filePath"],
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const result = cli.upload(params.filePath as string, {
         name: params.name as string | undefined,
         folder: params.folder as string | undefined,
         nsfw: params.nsfw as boolean | undefined,
       });
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
@@ -481,13 +481,13 @@ export default function register(api: PluginApi) {
       },
       required: ["filePath"],
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const result = cli.postImage(params.filePath as string, params.text as string | undefined, {
         cw: params.cw as string | undefined,
         visibility: params.visibility as string | undefined,
         nsfw: params.nsfw as boolean | undefined,
       });
-      return { content: JSON.stringify(result) };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },
   });
 
