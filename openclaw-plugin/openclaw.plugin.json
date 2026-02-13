@@ -16,11 +16,6 @@
         "type": "boolean",
         "description": "If true, only process messages that mention the bot user."
       },
-      "allowFrom": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "List of usernames allowed to interact with the bot. If empty or omitted, all users are allowed."
-      },
       "adminUsers": {
         "type": "array",
         "items": { "type": "string" },
@@ -35,10 +30,6 @@
     },
     "mentionOnly": {
       "label": "Mention-only mode"
-    },
-    "allowFrom": {
-      "label": "Allowed Users",
-      "placeholder": "[\"c30\", \"other_user\"]"
     },
     "adminUsers": {
       "label": "Admin Users",
