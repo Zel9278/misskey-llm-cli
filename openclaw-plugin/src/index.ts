@@ -248,20 +248,56 @@ export default function register(api: PluginApi) {
     },
     outbound: {
       deliveryMode: "direct" as const,
-      sendText: async ({ text, context }: { text: string; context?: Record<string, unknown> }) => {
+      sendText: async ({ to, text, cfg, accountId, replyToId, threadId }: {
+        to: string;
+        text: string;
+        cfg: Record<string, unknown>;
+        accountId?: string;
+        replyToId?: string;
+        threadId?: string;
+        deps?: unknown;
+      }) => {
         try {
-          const replyId = context?.replyToNoteId as string | undefined;
-          const visibility = context?.visibility as string | undefined;
-          const visibleUserIds = context?.visibleUserIds as string[] | undefined;
-          if (replyId) {
-            cli.reply(replyId, text, { visibility, visibleUserIds });
+          let result: unknown;
+          if (replyToId) {
+            result = cli.reply(replyToId, text);
           } else {
-            cli.post(text, { visibility, visibleUserIds });
+            result = cli.post(text);
           }
-          return { ok: true };
+          const noteId = (result as Record<string, unknown>)?.createdNote
+            ? ((result as Record<string, unknown>).createdNote as Record<string, unknown>)?.id
+            : (result as Record<string, unknown>)?.id;
+          return { channel: "misskey", messageId: (noteId as string) ?? String(Date.now()) };
         } catch (err) {
           log.error("[misskey] sendText failed:", err);
-          return { ok: false };
+          return { channel: "misskey", messageId: String(Date.now()) };
+        }
+      },
+      sendMedia: async ({ to, text, mediaUrl, cfg, accountId, replyToId }: {
+        to: string;
+        text?: string;
+        mediaUrl?: string;
+        cfg: Record<string, unknown>;
+        accountId?: string;
+        replyToId?: string;
+        deps?: unknown;
+      }) => {
+        try {
+          // Combine text and media URL since Misskey doesn't have a native media-from-URL API
+          const message = mediaUrl ? `${text || ""}\n${mediaUrl}`.trim() : (text || "");
+          let result: unknown;
+          if (replyToId) {
+            result = cli.reply(replyToId, message);
+          } else {
+            result = cli.post(message);
+          }
+          const noteId = (result as Record<string, unknown>)?.createdNote
+            ? ((result as Record<string, unknown>).createdNote as Record<string, unknown>)?.id
+            : (result as Record<string, unknown>)?.id;
+          return { channel: "misskey", messageId: (noteId as string) ?? String(Date.now()) };
+        } catch (err) {
+          log.error("[misskey] sendMedia failed:", err);
+          return { channel: "misskey", messageId: String(Date.now()) };
         }
       },
     },
