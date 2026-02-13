@@ -31,6 +31,11 @@ export interface StreamEvent {
 export class MisskeyCli extends EventEmitter {
   private proc: ChildProcess | null = null;
   private binary: string;
+  private autoReconnect = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectDelay = 60_000; // cap at 60s
+  private stopping = false;
 
   constructor(binary = "what") {
     super();
@@ -53,7 +58,14 @@ export class MisskeyCli extends EventEmitter {
   }
 
   // Start streaming (spawns 'what stream')
-  startStream(): boolean {
+  startStream(opts?: { autoReconnect?: boolean }): boolean {
+    this.autoReconnect = opts?.autoReconnect ?? true;
+    this.stopping = false;
+    this.reconnectAttempts = 0;
+    return this.spawnStream();
+  }
+
+  private spawnStream(): boolean {
     if (!this.isAvailable()) {
       this.emit("error", new Error(`CLI binary '${this.binary}' not found in PATH`));
       return false;
@@ -76,6 +88,8 @@ export class MisskeyCli extends EventEmitter {
     rl.on("line", (line: string) => {
       try {
         const evt: StreamEvent = JSON.parse(line);
+        // Reset reconnect backoff on successful data
+        this.reconnectAttempts = 0;
         this.emit("event", evt);
         this.emit(evt.event, evt.data);
       } catch {
@@ -88,13 +102,42 @@ export class MisskeyCli extends EventEmitter {
     });
 
     this.proc.on("exit", (code: number | null) => {
+      this.proc = null;
       this.emit("exit", code);
+
+      if (this.autoReconnect && !this.stopping) {
+        this.scheduleReconnect();
+      }
     });
 
     return true;
   }
 
+  private scheduleReconnect(): void {
+    // Exponential backoff: 1s, 2s, 4s, 8s, ... up to maxReconnectDelay
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), this.maxReconnectDelay);
+    this.reconnectAttempts++;
+
+    this.emit("reconnecting", { attempt: this.reconnectAttempts, delayMs: delay });
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopping) return;
+
+      this.emit("reconnect", { attempt: this.reconnectAttempts });
+      this.spawnStream();
+    }, delay);
+  }
+
   stopStream(): void {
+    this.stopping = true;
+    this.autoReconnect = false;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.proc) {
       this.proc.kill("SIGTERM");
       this.proc = null;

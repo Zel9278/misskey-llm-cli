@@ -258,7 +258,7 @@ export default function register(api: PluginApi) {
           return { stop: () => {} };
         }
 
-        const started = cli.startStream();
+        const started = cli.startStream({ autoReconnect: true });
         if (!started) {
           gatewayLog.warn("[misskey] Failed to start stream.");
           ctx.updateSnapshot?.({ running: false, error: "Stream start failed" });
@@ -269,6 +269,16 @@ export default function register(api: PluginApi) {
 
         cli.on("error", (err: Error) => {
           gatewayLog.error(`[misskey] Stream error: ${err.message}`);
+        });
+
+        cli.on("reconnecting", (info: { attempt: number; delayMs: number }) => {
+          gatewayLog.warn(`[misskey] Stream disconnected. Reconnecting in ${info.delayMs}ms (attempt #${info.attempt})...`);
+          ctx.updateSnapshot?.({ running: false, reconnecting: true });
+        });
+
+        cli.on("reconnect", (info: { attempt: number }) => {
+          gatewayLog.info(`[misskey] Reconnecting stream (attempt #${info.attempt})...`);
+          ctx.updateSnapshot?.({ running: true, reconnecting: false, lastReconnectAt: new Date().toISOString() });
         });
 
         // Handle mention events -> deliver to agent
