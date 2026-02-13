@@ -9,6 +9,8 @@ import { MisskeyCli } from "./cli-bridge.js";
 interface PluginConfig {
   cliBinary?: string;
   mentionOnly?: boolean;
+  allowFrom?: string[];
+  adminUsers?: string[];
 }
 
 interface Logger {
@@ -46,6 +48,21 @@ function getPluginConfig(api: PluginApi): PluginConfig {
   const entries = (api.config as Record<string, unknown>)?.plugins as Record<string, unknown> | undefined;
   const misskey = (entries?.entries as Record<string, unknown>)?.misskey as Record<string, unknown> | undefined;
   return (misskey?.config as PluginConfig) ?? {};
+}
+
+// ---- Access control helpers ----
+
+let _pluginCfg: PluginConfig = {};
+
+function isAllowed(username: string): boolean {
+  // If allowFrom is not set or empty, allow everyone
+  if (!_pluginCfg.allowFrom?.length) return true;
+  return _pluginCfg.allowFrom.includes(username);
+}
+
+function isAdmin(username: string): boolean {
+  if (!_pluginCfg.adminUsers?.length) return false;
+  return _pluginCfg.adminUsers.includes(username);
 }
 
 function resolveChannelConfig(cfg: Record<string, unknown>): Record<string, unknown> {
@@ -89,6 +106,13 @@ async function deliverInbound(
     : [];
 
   if (!text) return; // skip empty notes (renotes without text, etc.)
+
+  // Access control: check if sender is allowed
+  const username = user?.username as string ?? "unknown";
+  if (!isAllowed(username)) {
+    log.info(`[misskey] Ignoring message from @${username} (not in allowFrom list)`);
+    return;
+  }
 
   try {
     // Step 1: Route to agent
@@ -204,7 +228,17 @@ async function deliverInbound(
 export default function register(api: PluginApi) {
   setRuntime(api);
   const pluginCfg = getPluginConfig(api);
+  _pluginCfg = pluginCfg;
   const cli = new MisskeyCli(pluginCfg.cliBinary || "what");
+
+  if (pluginCfg.allowFrom?.length) {
+    log.info(`[misskey] allowFrom: ${pluginCfg.allowFrom.join(", ")}`);
+  } else {
+    log.info("[misskey] allowFrom not set, accepting messages from everyone");
+  }
+  if (pluginCfg.adminUsers?.length) {
+    log.info(`[misskey] adminUsers: ${pluginCfg.adminUsers.join(", ")}`);
+  }
 
   // ---- Register as a messaging channel ----
   const channelPlugin = {
