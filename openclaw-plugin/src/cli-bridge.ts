@@ -137,6 +137,23 @@ export class MisskeyCli extends EventEmitter {
     return this.exec(args);
   }
 
+  upload(filePath: string, opts?: { name?: string; folder?: string; nsfw?: boolean }): unknown {
+    const args = ["upload", filePath];
+    if (opts?.name) args.push("--name", opts.name);
+    if (opts?.folder) args.push("--folder", opts.folder);
+    if (opts?.nsfw) args.push("--nsfw");
+    return this.exec(args);
+  }
+
+  postImage(filePath: string, text?: string, opts?: { cw?: string; visibility?: string; nsfw?: boolean }): unknown {
+    const args = ["post-image", filePath];
+    if (text) args.push(text);
+    if (opts?.cw) args.push("--cw", opts.cw);
+    if (opts?.visibility) args.push("--visibility", opts.visibility);
+    if (opts?.nsfw) args.push("--nsfw");
+    return this.exec(args);
+  }
+
   noteShow(noteId: string): unknown {
     return this.exec(["show", noteId]);
   }

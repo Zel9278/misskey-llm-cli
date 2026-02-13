@@ -434,6 +434,53 @@ export default function register(api: PluginApi) {
     },
   });
 
+  api.registerTool({
+    name: "misskey_upload",
+    description: "Upload a file to Misskey Drive and return the file object (including id).",
+    parameters: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "Absolute path to the file to upload" },
+        name: { type: "string", description: "Override file name (optional)" },
+        folder: { type: "string", description: "Folder ID to upload into (optional)" },
+        nsfw: { type: "boolean", description: "Mark as NSFW/sensitive (default: false)" },
+      },
+      required: ["filePath"],
+    },
+    handler: async (params: Record<string, unknown>) => {
+      const result = cli.upload(params.filePath as string, {
+        name: params.name as string | undefined,
+        folder: params.folder as string | undefined,
+        nsfw: params.nsfw as boolean | undefined,
+      });
+      return { content: JSON.stringify(result) };
+    },
+  });
+
+  api.registerTool({
+    name: "misskey_post_image",
+    description: "Upload a file and post it as a note with optional text. Combines upload + post in one step.",
+    parameters: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "Absolute path to the image/file to post" },
+        text: { type: "string", description: "Note text (optional)" },
+        cw: { type: "string", description: "Content warning (optional)" },
+        visibility: { type: "string", enum: ["public", "home", "followers", "specified"], description: "Visibility (default: public)" },
+        nsfw: { type: "boolean", description: "Mark file as NSFW/sensitive (default: false)" },
+      },
+      required: ["filePath"],
+    },
+    handler: async (params: Record<string, unknown>) => {
+      const result = cli.postImage(params.filePath as string, params.text as string | undefined, {
+        cw: params.cw as string | undefined,
+        visibility: params.visibility as string | undefined,
+        nsfw: params.nsfw as boolean | undefined,
+      });
+      return { content: JSON.stringify(result) };
+    },
+  });
+
   // ---- Auto-reply commands ----
   api.registerCommand({
     name: "mkpost",

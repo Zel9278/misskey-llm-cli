@@ -145,6 +145,94 @@ namespace Misskey {
             return post("following/delete", {{"userId", user_id}});
         }
 
+        // ---- Drive (file upload) ----
+
+        json drive_upload(const std::string& file_path,
+                         const std::string& name = "",
+                         const std::string& folder_id = "",
+                         bool is_sensitive = false) const {
+            std::string url = "https://" + uri + "/api/drive/files/create";
+
+            CURL* curl = curl_easy_init();
+            std::string response_buf;
+
+            if (!curl) {
+                return json{{"error", "curl_init_failed"}};
+            }
+
+            curl_mime* mime = curl_mime_init(curl);
+
+            // Token
+            curl_mimepart* part = curl_mime_addpart(mime);
+            curl_mime_name(part, "i");
+            curl_mime_data(part, token.c_str(), CURL_ZERO_TERMINATED);
+
+            // File
+            part = curl_mime_addpart(mime);
+            curl_mime_name(part, "file");
+            curl_mime_filedata(part, file_path.c_str());
+            if (!name.empty()) {
+                curl_mime_filename(part, name.c_str());
+            }
+
+            // Optional name field
+            if (!name.empty()) {
+                part = curl_mime_addpart(mime);
+                curl_mime_name(part, "name");
+                curl_mime_data(part, name.c_str(), CURL_ZERO_TERMINATED);
+            }
+
+            // Optional folder ID
+            if (!folder_id.empty()) {
+                part = curl_mime_addpart(mime);
+                curl_mime_name(part, "folderId");
+                curl_mime_data(part, folder_id.c_str(), CURL_ZERO_TERMINATED);
+            }
+
+            // Sensitive flag
+            if (is_sensitive) {
+                part = curl_mime_addpart(mime);
+                curl_mime_name(part, "isSensitive");
+                curl_mime_data(part, "true", CURL_ZERO_TERMINATED);
+            }
+
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buf);
+
+            CURLcode res = curl_easy_perform(curl);
+            curl_mime_free(mime);
+            curl_easy_cleanup(curl);
+
+            if (res != CURLE_OK) {
+                return json{{"error", curl_easy_strerror(res)}};
+            }
+
+            try {
+                return json::parse(response_buf);
+            } catch (...) {
+                return json{{"error", "invalid_json"}, {"raw", response_buf}};
+            }
+        }
+
+        // Create a note with file attachments
+        json note_create_with_files(const std::string& text,
+                                   const std::vector<std::string>& file_ids,
+                                   const std::string& visibility = "public",
+                                   const std::string& cw = "",
+                                   const std::string& reply_id = "",
+                                   const std::string& renote_id = "") const {
+            json body;
+            if (!text.empty()) body["text"] = text;
+            body["visibility"] = visibility;
+            body["fileIds"] = file_ids;
+            if (!cw.empty()) body["cw"] = cw;
+            if (!reply_id.empty()) body["replyId"] = reply_id;
+            if (!renote_id.empty()) body["renoteId"] = renote_id;
+            return post("notes/create", body);
+        }
+
         // ---- Search ----
 
         json search_notes(const std::string& query, int limit = 10) const {

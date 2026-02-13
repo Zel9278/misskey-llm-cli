@@ -71,6 +71,8 @@ void print_usage() {
         << "  what reply <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
         << "  what quote <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
         << "  what renote <noteId>\n"
+        << "  what upload <file> [--name <name>] [--folder <folderId>] [--nsfw]\n"
+        << "  what post-image <file> [<text>] [--cw <cw>] [--visibility <vis>] [--nsfw]\n"
         << "  what delete <noteId>\n"
         << "  what show <noteId>\n"
         << "  what timeline [hybrid|local|global|home] [--limit N]\n"
@@ -203,6 +205,39 @@ int main(int argc, char* argv[]) {
     } else if (cmd == "renote" || cmd == "rn") {
         if (pos.empty()) { std::cerr << "Usage: what renote <noteId>" << std::endl; return 1; }
         print_result(client.renote(pos[0]));
+
+    } else if (cmd == "upload") {
+        if (pos.empty()) { std::cerr << "Usage: what upload <file> [--name <name>] [--folder <folderId>] [--nsfw]" << std::endl; return 1; }
+        std::string name = get_flag(rest, "--name");
+        std::string folder = get_flag(rest, "--folder");
+        bool nsfw = false;
+        for (const auto& a : rest) { if (a == "--nsfw") { nsfw = true; break; } }
+        print_result(client.drive_upload(pos[0], name, folder, nsfw));
+
+    } else if (cmd == "post-image" || cmd == "pi") {
+        if (pos.empty()) { std::cerr << "Usage: what post-image <file> [<text>] [--cw <cw>] [--visibility <vis>] [--nsfw]" << std::endl; return 1; }
+        std::string file_path = pos[0];
+        std::string text = pos.size() >= 2 ? pos[1] : "";
+        std::string cw = get_flag(rest, "--cw");
+        std::string vis = get_flag(rest, "--visibility", "public");
+        bool nsfw = false;
+        for (const auto& a : rest) { if (a == "--nsfw") { nsfw = true; break; } }
+
+        // Upload file first
+        json upload_result = client.drive_upload(file_path, "", "", nsfw);
+        if (upload_result.contains("error")) {
+            std::cerr << "Upload failed: " << upload_result.dump() << std::endl;
+            return 1;
+        }
+        std::string file_id = upload_result.value("id", "");
+        if (file_id.empty()) {
+            std::cerr << "Upload succeeded but no file ID returned" << std::endl;
+            return 1;
+        }
+
+        std::string reply_id = get_flag(rest, "--reply");
+        std::string quote_id = get_flag(rest, "--quote");
+        print_result(client.note_create_with_files(text, {file_id}, vis, cw, reply_id, quote_id));
 
     } else if (cmd == "delete") {
         if (pos.empty()) { std::cerr << "Usage: what delete <noteId>" << std::endl; return 1; }
