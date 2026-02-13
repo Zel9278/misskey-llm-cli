@@ -469,7 +469,7 @@ export default function register(api: PluginApi) {
 
   api.registerTool({
     name: "misskey_post_image",
-    description: "Upload a file and post it as a note with optional text. Combines upload + post in one step.",
+    description: "Upload a file and post it as a note with optional text. Supports reply and quote. Combines upload + post in one step.",
     parameters: {
       type: "object",
       properties: {
@@ -478,6 +478,8 @@ export default function register(api: PluginApi) {
         cw: { type: "string", description: "Content warning (optional)" },
         visibility: { type: "string", enum: ["public", "home", "followers", "specified"], description: "Visibility (default: public)" },
         nsfw: { type: "boolean", description: "Mark file as NSFW/sensitive (default: false)" },
+        replyId: { type: "string", description: "Note ID to reply to (optional, for attaching images to a reply)" },
+        quoteId: { type: "string", description: "Note ID to quote (optional)" },
       },
       required: ["filePath"],
     },
@@ -486,6 +488,8 @@ export default function register(api: PluginApi) {
         cw: params.cw as string | undefined,
         visibility: params.visibility as string | undefined,
         nsfw: params.nsfw as boolean | undefined,
+        replyId: params.replyId as string | undefined,
+        quoteId: params.quoteId as string | undefined,
       });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     },

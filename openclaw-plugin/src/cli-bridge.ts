@@ -188,11 +188,13 @@ export class MisskeyCli extends EventEmitter {
     return this.exec(args);
   }
 
-  postImage(filePath: string, text?: string, opts?: { cw?: string; visibility?: string; nsfw?: boolean }): unknown {
+  postImage(filePath: string, text?: string, opts?: { cw?: string; visibility?: string; nsfw?: boolean; replyId?: string; quoteId?: string }): unknown {
     const args = ["post-image", filePath];
     if (text) args.push(text);
     if (opts?.cw) args.push("--cw", opts.cw);
     if (opts?.visibility) args.push("--visibility", opts.visibility);
+    if (opts?.replyId) args.push("--reply", opts.replyId);
+    if (opts?.quoteId) args.push("--quote", opts.quoteId);
     if (opts?.nsfw) args.push("--nsfw");
     return this.exec(args);
   }
