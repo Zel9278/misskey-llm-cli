@@ -164,19 +164,21 @@ export class MisskeyCli extends EventEmitter {
     }
   }
 
-  post(text: string, opts?: { cw?: string; visibility?: string; replyId?: string; quoteId?: string }): unknown {
+  post(text: string, opts?: { cw?: string; visibility?: string; replyId?: string; quoteId?: string; visibleUserIds?: string[] }): unknown {
     const args = ["post", text];
     if (opts?.cw) args.push("--cw", opts.cw);
     if (opts?.visibility) args.push("--visibility", opts.visibility);
     if (opts?.replyId) args.push("--reply", opts.replyId);
     if (opts?.quoteId) args.push("--quote", opts.quoteId);
+    if (opts?.visibleUserIds?.length) args.push("--visible-user-ids", opts.visibleUserIds.join(","));
     return this.exec(args);
   }
 
-  reply(noteId: string, text: string, opts?: { cw?: string; visibility?: string }): unknown {
+  reply(noteId: string, text: string, opts?: { cw?: string; visibility?: string; visibleUserIds?: string[] }): unknown {
     const args = ["reply", noteId, text];
     if (opts?.cw) args.push("--cw", opts.cw);
     if (opts?.visibility) args.push("--visibility", opts.visibility);
+    if (opts?.visibleUserIds?.length) args.push("--visible-user-ids", opts.visibleUserIds.join(","));
     return this.exec(args);
   }
 

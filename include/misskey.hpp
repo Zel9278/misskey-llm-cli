@@ -71,13 +71,15 @@ namespace Misskey {
                          const std::string& visibility = "public",
                          const std::string& cw = "",
                          const std::string& reply_id = "",
-                         const std::string& renote_id = "") const {
+                         const std::string& renote_id = "",
+                         const std::vector<std::string>& visible_user_ids = {}) const {
             json body;
             body["text"] = text;
             body["visibility"] = visibility;
             if (!cw.empty()) body["cw"] = cw;
             if (!reply_id.empty()) body["replyId"] = reply_id;
             if (!renote_id.empty()) body["renoteId"] = renote_id;
+            if (!visible_user_ids.empty()) body["visibleUserIds"] = visible_user_ids;
             return post("notes/create", body);
         }
 
@@ -222,7 +224,8 @@ namespace Misskey {
                                    const std::string& visibility = "public",
                                    const std::string& cw = "",
                                    const std::string& reply_id = "",
-                                   const std::string& renote_id = "") const {
+                                   const std::string& renote_id = "",
+                                   const std::vector<std::string>& visible_user_ids = {}) const {
             json body;
             if (!text.empty()) body["text"] = text;
             body["visibility"] = visibility;
@@ -230,6 +233,7 @@ namespace Misskey {
             if (!cw.empty()) body["cw"] = cw;
             if (!reply_id.empty()) body["replyId"] = reply_id;
             if (!renote_id.empty()) body["renoteId"] = renote_id;
+            if (!visible_user_ids.empty()) body["visibleUserIds"] = visible_user_ids;
             return post("notes/create", body);
         }
 

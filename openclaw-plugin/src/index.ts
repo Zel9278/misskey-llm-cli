@@ -80,6 +80,13 @@ async function deliverInbound(
   const senderId = (user?.id as string) ?? "unknown";
   const senderLabel = buildSenderLabel(user);
   const isDirect = (note.visibility as string) === "specified";
+  // Collect visibleUserIds for DM replies (include original sender)
+  const visibleUserIds: string[] = isDirect
+    ? Array.from(new Set([
+        senderId,
+        ...((note.visibleUserIds as string[]) ?? []),
+      ]))
+    : [];
 
   if (!text) return; // skip empty notes (renotes without text, etc.)
 
@@ -163,7 +170,15 @@ async function deliverInbound(
           const replyText = payload.markdown || payload.text;
           if (!replyText) return;
           try {
-            cli.reply(noteId, replyText);
+            if (isDirect) {
+              // Reply to DM: must set visibility=specified and visibleUserIds
+              cli.reply(noteId, replyText, {
+                visibility: "specified",
+                visibleUserIds,
+              });
+            } else {
+              cli.reply(noteId, replyText);
+            }
           } catch (err) {
             log.error("[misskey] Reply delivery failed:", err);
           }
@@ -221,10 +236,12 @@ export default function register(api: PluginApi) {
       sendText: async ({ text, context }: { text: string; context?: Record<string, unknown> }) => {
         try {
           const replyId = context?.replyToNoteId as string | undefined;
+          const visibility = context?.visibility as string | undefined;
+          const visibleUserIds = context?.visibleUserIds as string[] | undefined;
           if (replyId) {
-            cli.reply(replyId, text);
+            cli.reply(replyId, text, { visibility, visibleUserIds });
           } else {
-            cli.post(text);
+            cli.post(text, { visibility, visibleUserIds });
           }
           return { ok: true };
         } catch (err) {

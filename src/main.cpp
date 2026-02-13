@@ -178,9 +178,31 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> rest(args.begin() + 1, args.end());
     auto pos = positional(rest);
 
+    // Parse comma-separated --visible-user-ids flag
+    auto parse_visible_user_ids = [](const std::vector<std::string>& args) -> std::vector<std::string> {
+        std::string raw;
+        for (size_t i = 0; i < args.size(); i++) {
+            if (args[i] == "--visible-user-ids" && i + 1 < args.size()) {
+                raw = args[i + 1];
+                break;
+            }
+        }
+        std::vector<std::string> ids;
+        if (raw.empty()) return ids;
+        size_t start = 0;
+        while (start < raw.size()) {
+            auto pos = raw.find(',', start);
+            if (pos == std::string::npos) pos = raw.size();
+            std::string id = raw.substr(start, pos - start);
+            if (!id.empty()) ids.push_back(id);
+            start = pos + 1;
+        }
+        return ids;
+    };
+
     if (cmd == "post") {
         if (pos.empty()) {
-            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>]" << std::endl;
+            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>] [--visible-user-ids <id1,id2,...>]" << std::endl;
             return 1;
         }
         std::string text = pos[0];
@@ -188,13 +210,15 @@ int main(int argc, char* argv[]) {
         std::string vis = get_flag(rest, "--visibility", "public");
         std::string reply_id = get_flag(rest, "--reply");
         std::string quote_id = get_flag(rest, "--quote");
-        print_result(client.note_create(text, vis, cw, reply_id, quote_id));
+        auto vuids = parse_visible_user_ids(rest);
+        print_result(client.note_create(text, vis, cw, reply_id, quote_id, vuids));
 
     } else if (cmd == "reply") {
-        if (pos.size() < 2) { std::cerr << "Usage: what reply <noteId> <text> [--cw <cw>] [--visibility <vis>]" << std::endl; return 1; }
+        if (pos.size() < 2) { std::cerr << "Usage: what reply <noteId> <text> [--cw <cw>] [--visibility <vis>] [--visible-user-ids <id1,id2,...>]" << std::endl; return 1; }
         std::string cw = get_flag(rest, "--cw");
         std::string vis = get_flag(rest, "--visibility", "public");
-        print_result(client.note_create(pos[1], vis, cw, pos[0]));
+        auto vuids = parse_visible_user_ids(rest);
+        print_result(client.note_create(pos[1], vis, cw, pos[0], "", vuids));
 
     } else if (cmd == "quote") {
         if (pos.size() < 2) { std::cerr << "Usage: what quote <noteId> <text> [--cw <cw>] [--visibility <vis>]" << std::endl; return 1; }
@@ -237,7 +261,8 @@ int main(int argc, char* argv[]) {
 
         std::string reply_id = get_flag(rest, "--reply");
         std::string quote_id = get_flag(rest, "--quote");
-        print_result(client.note_create_with_files(text, {file_id}, vis, cw, reply_id, quote_id));
+        auto vuids = parse_visible_user_ids(rest);
+        print_result(client.note_create_with_files(text, {file_id}, vis, cw, reply_id, quote_id, vuids));
 
     } else if (cmd == "delete") {
         if (pos.empty()) { std::cerr << "Usage: what delete <noteId>" << std::endl; return 1; }
