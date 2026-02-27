@@ -68,22 +68,27 @@ void print_usage() {
         << "Usage:\n"
         << "  what stream                        -- Stream timeline & notifications\n"
         << "  what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>]\n"
+        << "       [--poll <choice1,choice2,...>] [--poll-multiple] [--poll-expires <minutes>]\n"
         << "  what reply <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
         << "  what quote <noteId> <text> [--cw <cw>] [--visibility <vis>]\n"
         << "  what renote <noteId>\n"
         << "  what upload <file> [--name <name>] [--folder <folderId>] [--nsfw]\n"
         << "  what post-image <file> [<text>] [--cw <cw>] [--visibility <vis>] [--nsfw]\n"
+        << "       [--reply <noteId>] [--quote <noteId>] [--visible-user-ids <id1,id2,...>]\n"
         << "  what delete <noteId>\n"
         << "  what show <noteId>\n"
         << "  what timeline [hybrid|local|global|home] [--limit N]\n"
         << "  what search <query> [--limit N]\n"
         << "  what react <noteId> <reaction>\n"
         << "  what unreact <noteId>\n"
+        << "  what vote <noteId> <choiceIndex>\n"
         << "  what notif [--limit N]\n"
         << "  what user <username> [--host <host>]\n"
         << "  what me\n"
         << "  what follow <userId>\n"
-        << "  what unfollow <userId>\n";
+        << "  what unfollow <userId>\n"
+        << "  what block <userId>\n"
+        << "  what unblock <userId>\n";
 }
 
 // Simple arg parser helpers
@@ -200,9 +205,57 @@ int main(int argc, char* argv[]) {
         return ids;
     };
 
+    // Parse --poll flag: comma-separated choices
+    auto parse_poll = [](const std::vector<std::string>& args) -> json {
+        std::string raw;
+        for (size_t i = 0; i < args.size(); i++) {
+            if (args[i] == "--poll" && i + 1 < args.size()) {
+                raw = args[i + 1];
+                break;
+            }
+        }
+        if (raw.empty()) return json();
+
+        // Parse choices
+        std::vector<std::string> choices;
+        size_t start = 0;
+        while (start < raw.size()) {
+            auto p = raw.find(',', start);
+            if (p == std::string::npos) p = raw.size();
+            std::string c = raw.substr(start, p - start);
+            if (!c.empty()) choices.push_back(c);
+            start = p + 1;
+        }
+        if (choices.size() < 2) return json();
+
+        json poll;
+        poll["choices"] = choices;
+
+        // Check --poll-multiple flag
+        for (const auto& a : args) {
+            if (a == "--poll-multiple") {
+                poll["multiple"] = true;
+                break;
+            }
+        }
+
+        // Check --poll-expires <minutes>
+        for (size_t i = 0; i < args.size(); i++) {
+            if (args[i] == "--poll-expires" && i + 1 < args.size()) {
+                try {
+                    int minutes = std::stoi(args[i + 1]);
+                    poll["expiredAfter"] = minutes * 60 * 1000; // convert to ms
+                } catch (...) {}
+                break;
+            }
+        }
+
+        return poll;
+    };
+
     if (cmd == "post") {
         if (pos.empty()) {
-            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>] [--visible-user-ids <id1,id2,...>]" << std::endl;
+            std::cerr << "Usage: what post <text> [--cw <cw>] [--visibility <vis>] [--reply <noteId>] [--quote <noteId>] [--visible-user-ids <id1,id2,...>] [--poll <c1,c2,...>] [--poll-multiple] [--poll-expires <min>]" << std::endl;
             return 1;
         }
         std::string text = pos[0];
@@ -211,7 +264,8 @@ int main(int argc, char* argv[]) {
         std::string reply_id = get_flag(rest, "--reply");
         std::string quote_id = get_flag(rest, "--quote");
         auto vuids = parse_visible_user_ids(rest);
-        print_result(client.note_create(text, vis, cw, reply_id, quote_id, vuids));
+        auto poll = parse_poll(rest);
+        print_result(client.note_create(text, vis, cw, reply_id, quote_id, vuids, poll));
 
     } else if (cmd == "reply") {
         if (pos.size() < 2) { std::cerr << "Usage: what reply <noteId> <text> [--cw <cw>] [--visibility <vis>] [--visible-user-ids <id1,id2,...>]" << std::endl; return 1; }
@@ -309,6 +363,23 @@ int main(int argc, char* argv[]) {
     } else if (cmd == "unfollow") {
         if (pos.empty()) { std::cerr << "Usage: what unfollow <userId>" << std::endl; return 1; }
         print_result(client.unfollow(pos[0]));
+
+    } else if (cmd == "block") {
+        if (pos.empty()) { std::cerr << "Usage: what block <userId>" << std::endl; return 1; }
+        print_result(client.block(pos[0]));
+
+    } else if (cmd == "unblock") {
+        if (pos.empty()) { std::cerr << "Usage: what unblock <userId>" << std::endl; return 1; }
+        print_result(client.unblock(pos[0]));
+
+    } else if (cmd == "vote") {
+        if (pos.size() < 2) { std::cerr << "Usage: what vote <noteId> <choiceIndex>" << std::endl; return 1; }
+        int choice = 0;
+        try { choice = std::stoi(pos[1]); } catch (...) {
+            std::cerr << "Invalid choice index: " << pos[1] << std::endl;
+            return 1;
+        }
+        print_result(client.poll_vote(pos[0], choice));
 
     } else {
         std::cerr << "Unknown command: " << cmd << std::endl;
