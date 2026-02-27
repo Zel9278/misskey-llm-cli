@@ -60,6 +60,7 @@ namespace Misskey {
     // Extract compact user info
     inline json extract_user(const json& user) {
         json u;
+        u["id"] = user.value("id", "");
         u["username"] = user.value("username", "");
         u["name"] = user.value("name", json(nullptr));
         u["host"] = user.value("host", json(nullptr));
@@ -84,15 +85,35 @@ namespace Misskey {
         n["visibility"] = note.value("visibility", "public");
         n["createdAt"] = note.value("createdAt", "");
         n["user"] = extract_user(note.at("user"));
+        n["userId"] = note.at("user").value("id", "");
+
+        // Note URL for reference
+        if (note.contains("uri") && !note["uri"].is_null()) {
+            n["uri"] = note["uri"];
+        }
+        if (note.contains("url") && !note["url"].is_null()) {
+            n["url"] = note["url"];
+        }
+
+        // Reply info
+        if (note.contains("replyId") && !note["replyId"].is_null()) {
+            n["replyId"] = note["replyId"];
+        }
+        if (note.contains("reply") && !note["reply"].is_null()) {
+            n["reply"] = extract_note(note["reply"]);
+        }
 
         // Renote info
+        if (note.contains("renoteId") && !note["renoteId"].is_null()) {
+            n["renoteId"] = note["renoteId"];
+        }
         if (note.contains("renote") && !note["renote"].is_null()) {
             n["renote"] = extract_note(note["renote"]);
         }
 
-        // Reply info
-        if (note.contains("reply") && !note["reply"].is_null()) {
-            n["replyTo"] = note["reply"].value("id", "");
+        // Visible user IDs (for DM replies)
+        if (note.contains("visibleUserIds") && note["visibleUserIds"].is_array()) {
+            n["visibleUserIds"] = note["visibleUserIds"];
         }
 
         // File count

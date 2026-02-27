@@ -58,6 +58,11 @@ namespace Misskey {
                 return json{{"error", curl_easy_strerror(res)}};
             }
 
+            // Some endpoints return empty body on success (e.g. 204 No Content)
+            if (response_buf.empty()) {
+                return json{{"ok", true}};
+            }
+
             try {
                 return json::parse(response_buf);
             } catch (...) {
@@ -72,7 +77,8 @@ namespace Misskey {
                          const std::string& cw = "",
                          const std::string& reply_id = "",
                          const std::string& renote_id = "",
-                         const std::vector<std::string>& visible_user_ids = {}) const {
+                         const std::vector<std::string>& visible_user_ids = {},
+                         const json& poll = json()) const {
             json body;
             body["text"] = text;
             body["visibility"] = visibility;
@@ -80,6 +86,7 @@ namespace Misskey {
             if (!reply_id.empty()) body["replyId"] = reply_id;
             if (!renote_id.empty()) body["renoteId"] = renote_id;
             if (!visible_user_ids.empty()) body["visibleUserIds"] = visible_user_ids;
+            if (!poll.is_null() && !poll.empty()) body["poll"] = poll;
             return post("notes/create", body);
         }
 
@@ -147,6 +154,16 @@ namespace Misskey {
             return post("following/delete", {{"userId", user_id}});
         }
 
+        // ---- Block ----
+
+        json block(const std::string& user_id) const {
+            return post("blocking/create", {{"userId", user_id}});
+        }
+
+        json unblock(const std::string& user_id) const {
+            return post("blocking/delete", {{"userId", user_id}});
+        }
+
         // ---- Drive (file upload) ----
 
         json drive_upload(const std::string& file_path,
@@ -211,6 +228,11 @@ namespace Misskey {
                 return json{{"error", curl_easy_strerror(res)}};
             }
 
+            // Some endpoints return empty body on success (e.g. 204 No Content)
+            if (response_buf.empty()) {
+                return json{{"ok", true}};
+            }
+
             try {
                 return json::parse(response_buf);
             } catch (...) {
@@ -225,7 +247,8 @@ namespace Misskey {
                                    const std::string& cw = "",
                                    const std::string& reply_id = "",
                                    const std::string& renote_id = "",
-                                   const std::vector<std::string>& visible_user_ids = {}) const {
+                                   const std::vector<std::string>& visible_user_ids = {},
+                                   const json& poll = json()) const {
             json body;
             if (!text.empty()) body["text"] = text;
             body["visibility"] = visibility;
@@ -234,6 +257,7 @@ namespace Misskey {
             if (!reply_id.empty()) body["replyId"] = reply_id;
             if (!renote_id.empty()) body["renoteId"] = renote_id;
             if (!visible_user_ids.empty()) body["visibleUserIds"] = visible_user_ids;
+            if (!poll.is_null() && !poll.empty()) body["poll"] = poll;
             return post("notes/create", body);
         }
 
@@ -241,6 +265,12 @@ namespace Misskey {
 
         json search_notes(const std::string& query, int limit = 10) const {
             return post("notes/search", {{"query", query}, {"limit", limit}});
+        }
+
+        // ---- Poll ----
+
+        json poll_vote(const std::string& note_id, int choice) const {
+            return post("notes/polls/vote", {{"noteId", note_id}, {"choice", choice}});
         }
     };
 }

@@ -81,7 +81,7 @@ export class MisskeyCli extends EventEmitter {
     }
 
     this.proc.on("error", (err: Error) => {
-      this.emit("error", err);
+      this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
 
     const rl = createInterface({ input: this.proc.stdout! });
@@ -91,7 +91,13 @@ export class MisskeyCli extends EventEmitter {
         // Reset reconnect backoff on successful data
         this.reconnectAttempts = 0;
         this.emit("event", evt);
-        this.emit(evt.event, evt.data);
+        // Avoid emitting Node.js 'error' event with non-Error objects
+        // (Node throws unhandled 'error' events and expects Error instances)
+        if (evt.event === "error") {
+          this.emit("stream_error", evt.data);
+        } else {
+          this.emit(evt.event, evt.data);
+        }
       } catch {
         // skip malformed lines
       }
@@ -164,13 +170,18 @@ export class MisskeyCli extends EventEmitter {
     }
   }
 
-  post(text: string, opts?: { cw?: string; visibility?: string; replyId?: string; quoteId?: string; visibleUserIds?: string[] }): unknown {
+  post(text: string, opts?: { cw?: string; visibility?: string; replyId?: string; quoteId?: string; visibleUserIds?: string[]; poll?: { choices: string[]; multiple?: boolean; expiresMinutes?: number } }): unknown {
     const args = ["post", text];
     if (opts?.cw) args.push("--cw", opts.cw);
     if (opts?.visibility) args.push("--visibility", opts.visibility);
     if (opts?.replyId) args.push("--reply", opts.replyId);
     if (opts?.quoteId) args.push("--quote", opts.quoteId);
     if (opts?.visibleUserIds?.length) args.push("--visible-user-ids", opts.visibleUserIds.join(","));
+    if (opts?.poll?.choices?.length) {
+      args.push("--poll", opts.poll.choices.join(","));
+      if (opts.poll.multiple) args.push("--poll-multiple");
+      if (opts.poll.expiresMinutes) args.push("--poll-expires", String(opts.poll.expiresMinutes));
+    }
     return this.exec(args);
   }
 
@@ -190,13 +201,14 @@ export class MisskeyCli extends EventEmitter {
     return this.exec(args);
   }
 
-  postImage(filePath: string, text?: string, opts?: { cw?: string; visibility?: string; nsfw?: boolean; replyId?: string; quoteId?: string }): unknown {
+  postImage(filePath: string, text?: string, opts?: { cw?: string; visibility?: string; nsfw?: boolean; replyId?: string; quoteId?: string; visibleUserIds?: string[] }): unknown {
     const args = ["post-image", filePath];
     if (text) args.push(text);
     if (opts?.cw) args.push("--cw", opts.cw);
     if (opts?.visibility) args.push("--visibility", opts.visibility);
     if (opts?.replyId) args.push("--reply", opts.replyId);
     if (opts?.quoteId) args.push("--quote", opts.quoteId);
+    if (opts?.visibleUserIds?.length) args.push("--visible-user-ids", opts.visibleUserIds.join(","));
     if (opts?.nsfw) args.push("--nsfw");
     return this.exec(args);
   }
@@ -227,5 +239,31 @@ export class MisskeyCli extends EventEmitter {
 
   deleteNote(noteId: string): unknown {
     return this.exec(["delete", noteId]);
+  }
+
+  userShow(username: string, host?: string): unknown {
+    const args = ["user", username];
+    if (host) args.push("--host", host);
+    return this.exec(args);
+  }
+
+  follow(userId: string): unknown {
+    return this.exec(["follow", userId]);
+  }
+
+  unfollow(userId: string): unknown {
+    return this.exec(["unfollow", userId]);
+  }
+
+  block(userId: string): unknown {
+    return this.exec(["block", userId]);
+  }
+
+  unblock(userId: string): unknown {
+    return this.exec(["unblock", userId]);
+  }
+
+  vote(noteId: string, choice: number): unknown {
+    return this.exec(["vote", noteId, String(choice)]);
   }
 }
