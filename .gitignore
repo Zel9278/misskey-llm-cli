@@ -1,5 +1,29 @@
+# Build artifacts
 .vscode/
 .xmake/
 build/
 vsxmake*/
+
+# Secrets / config
 config.toml
+*.env
+.env*
+*.key
+*.pem
+
+# Node.js
+node_modules/
+openclaw-plugin/node_modules/
+openclaw-plugin/dist/
+openclaw-plugin/pnpm-lock.yaml
+openclaw-plugin/package-lock.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs
+*.log

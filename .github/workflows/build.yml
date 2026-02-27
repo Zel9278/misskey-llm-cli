@@ -1,4 +1,4 @@
-name: Build
+name: CI
 
 on:
   push:
@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-cpp:
+    name: C++ Build (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -30,25 +31,93 @@ jobs:
       - name: Build
         run: xmake build -y
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: misskey-cli-${{ matrix.os }}-${{ matrix.mode }}
-          path: |
-            build/**/what
-            build/**/what.exe
-            config.toml.example
-          if-no-files-found: warn
-
-  release:
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  lint-cpp:
+    name: C++ clang-tidy
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - uses: actions/checkout@v4
 
-      - name: List artifacts
-        run: find artifacts -type f
+      - name: Install clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Configure and generate compile_commands.json
+        run: |
+          xmake config -m release -y
+          xmake project -k compile_commands
+
+      - name: Run clang-tidy
+        run: |
+          clang-tidy \
+            -p . \
+            --warnings-as-errors='*' \
+            --checks='-*,bugprone-*,performance-*,readability-*,modernize-*,-modernize-use-trailing-return-type,-readability-identifier-length,-readability-magic-numbers' \
+            src/main.cpp \
+            -- || true
+
+  typecheck-ts:
+    name: TypeScript type check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        working-directory: openclaw-plugin
+        run: pnpm install
+
+      - name: TypeScript type check
+        working-directory: openclaw-plugin
+        run: pnpm run build
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build-cpp, lint-cpp, typecheck-ts]
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.build-cpp.result }}" = "success" ]; then
+            echo "| C++ Build | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| C++ Build | :x: ${{ needs.build-cpp.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.lint-cpp.result }}" = "success" ]; then
+            echo "| C++ clang-tidy | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| C++ clang-tidy | :warning: ${{ needs.lint-cpp.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.typecheck-ts.result }}" = "success" ]; then
+            echo "| TypeScript type check | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| TypeScript type check | :x: ${{ needs.typecheck-ts.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Fail if build or typecheck failed (lint is advisory)
+          if [ "${{ needs.build-cpp.result }}" != "success" ] || [ "${{ needs.typecheck-ts.result }}" != "success" ]; then
+            echo ""
+            echo "::error::One or more required checks failed."
+            exit 1
+          fi

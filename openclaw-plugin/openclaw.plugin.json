@@ -20,6 +20,29 @@
         "type": "array",
         "items": { "type": "string" },
         "description": "List of usernames with admin privileges (e.g. can use admin-only commands)."
+      },
+      "autonomousPost": {
+        "type": "object",
+        "description": "Periodic autonomous posting configuration. The bot will use its LLM to generate and post notes at a regular interval.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable periodic autonomous posting."
+          },
+          "intervalMinutes": {
+            "type": "number",
+            "description": "Interval between posts in minutes (default: 60)."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "home", "followers"],
+            "description": "Visibility for autonomous posts (default: public)."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "System prompt for generating autonomous posts. If omitted, a default prompt is used."
+          }
+        }
       }
     }
   },
@@ -34,6 +57,10 @@
     "adminUsers": {
       "label": "Admin Users",
       "placeholder": "[\"c30\"]"
+    },
+    "autonomousPost": {
+      "label": "Autonomous Posting",
+      "placeholder": "{\"enabled\": true, \"intervalMinutes\": 60, \"visibility\": \"public\"}"
     }
   }
 }
